@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Format Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 50px;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .light-mode {
+            background-color: #f9f9f9;
+            color: black;
+        }
+        .dark-mode {
+            background-color: #333;
+            color: white;
+        }
+        canvas {
+            display: none;
+        }
+        #output {
+            margin-top: 20px;
+            max-width: 300px;
+            text-align: left;
+        }
+        button {
+            margin-top: 10px;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        button:hover {
+            background-color: #0056b3;
+            transform: scale(1.05);
+        }
+        .tick, .conversion-message {
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            margin-left: 8px;
+            font-size: 20px;
+        }
+        .show {
+            opacity: 1;
+        }
+        #themeToggle {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            align-items: center;
+        }
+        #themeSwitch {
+            margin-left: 10px;
+            width: 40px;
+            height: 20px;
+            background-color: #ccc;
+            border-radius: 20px;
+            position: relative;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #themeSwitch::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: white;
+            transition: transform 0.3s;
+        }
+        #themeToggle.dark-mode #themeSwitch {
+            background-color: #007bff;
+        }
+        #themeToggle.dark-mode #themeSwitch::before {
+            transform: translateX(20px);
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body class="light-mode">
+
+    <h1>Image Format Converter</h1>
+
+    <input type="file" id="imageInput" accept="image/webp, image/jpeg, image/png, image/tiff, image/bmp" multiple />
+    <div id="formatSelector">
+        <label for="format">Convert to:</label>
+        <select id="format">
+            <option value="jpeg">JPEG</option>
+            <option value="png">PNG</option>
+            <option value="webp">WebP</option>
+            <option value="bmp">BMP</option>
+            <option value="tiff">TIFF</option>
+        </select>
+    </div>
+    <button id="convertButton">Convert Images</button>
+
+    <button id="downloadButton" style="display: none;">Download All Images</button>
+
+    <div id="output"></div>
+    <div class="tick">✔️</div>
+    <div class="conversion-message">File Converted</div>
+
+    <canvas id="canvas"></canvas>
+
+    <div id="themeToggle">
+        <label for="themeSwitch">Dark Mode:</label>
+        <div id="themeSwitch"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tiff/1.0.0/tiff.min.js"></script>
+    <script>
+        let convertedFiles = [];
+
+        document.getElementById('imageInput').addEventListener('change', function() {
+            const files = Array.from(this.files);
+            const outputDiv = document.getElementById('output');
+            outputDiv.innerHTML = '<h3>Selected Files:</h3><ul>' + files.map(file => `<li>${file.name}</li>`).join('') + '</ul>';
+        });
+
+        function showTick() {
+            const tick = document.querySelector('.tick');
+            const message = document.querySelector('.conversion-message');
+            tick.classList.add('show');
+            message.classList.add('show');
+            setTimeout(() => {
+                tick.classList.remove('show');
+                message.classList.remove('show');
+            }, 1500); // Keep visible for 1.5 seconds
+        }
+
+        function convertImages(input, format) {
+            const files = input.files;
+            if (files.length === 0) {
+                alert('Please select images to convert.');
+                return;
+            }
+
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const promises = [];
+
+            for (let file of files) {
+                promises.push(new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        const img = new Image();
+                        img.onload = function() {
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            ctx.drawImage(img, 0, 0);
+
+                            if (format === 'tiff') {
+                                const tiffDataUrl = convertToTIFF(canvas);
+                                convertedFiles.push({ dataUrl: tiffDataUrl, format, originalFileName: file.name });
+                            } else {
+                                let mimeType = 'image/jpeg'; // Default to JPEG
+                                if (format === 'png') mimeType = 'image/png';
+                                else if (format === 'webp') mimeType = 'image/webp';
+                                else if (format === 'bmp') mimeType = 'image/png'; // Use PNG as a temporary format for BMP
+
+                                const dataUrl = canvas.toDataURL(mimeType);
+                                convertedFiles.push({ dataUrl, format, originalFileName: file.name });
+                            }
+                            resolve(); // Resolve the promise after conversion
+                        };
+                        img.src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }));
+            }
+
+            Promise.all(promises).then(() => {
+                if (convertedFiles.length > 0) {
+                    showTick(); // Show tick and message only if there are converted files
+                    document.getElementById('downloadButton').style.display = 'block'; // Show download button
+                }
+            });
+        }
+
+        document.getElementById('downloadButton').addEventListener('click', function() {
+            convertedFiles.forEach((file, index) => {
+                setTimeout(() => {
+                    const link = document.createElement('a');
+                    link.href = file.dataUrl;
+                    link.download = `${file.originalFileName.split('.')[0]}.${file.format}`;
+                    link.click();
+                }, index * 200); // Delay each download by 200ms
+            });
+        });
+
+        function convertToTIFF(canvas) {
+            const width = canvas.width;
+            const height = canvas.height;
+            const imgData = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+
+            const tiffHeader = new Uint8Array([
+                0x49, 0x49, 0x2A, 0x00,
+                0x00, 0x00, 0x00, 0x08,
+                0x01, 0x00, 0x04, 0x00,
+                0x00, 0x00, 0x00, width & 0xFF, (width >> 8) & 0xFF, (width >> 16) & 0xFF, (width >> 24) & 0xFF,
+                0x02, 0x00, 0x04, 0x00,
+                0x00, 0x00, 0x00, height & 0xFF, (height >> 8) & 0xFF, (height >> 16) & 0xFF, (height >> 24) & 0xFF,
+                0x03, 0x00, 0x03, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x06, 0x00, 0x03, 0x00, // Compression
+                0x01, 0x00, 0x00, 0x00, // No compression
+                0x0A, 0x00, 0x03, 0x00, // PhotometricInterpretation
+                0x02, 0x00, 0x00, 0x00, // RGB
+                0x16, 0x00, 0x04, 0x00, // StripOffsets
+                0x00, 0x00, 0x00, 0x00, // Placeholder for strip offsets
+                0x1C, 0x00, 0x04, 0x00, // RowsPerStrip
+                height & 0xFF, (height >> 8) & 0xFF, (height >> 16) & 0xFF, (height >> 24) & 0xFF,
+                0x1E, 0x00, 0x03, 0x00, // StripByteCounts
+                width * height * 3 & 0xFF, (width * height * 3 >> 8) & 0xFF, (width * height * 3 >> 16) & 0xFF, (width * height * 3 >> 24) & 0xFF,
+                0x00, 0x00, 0x00, 0x00, // End of IFD
+            ]);
+
+            // Create pixel data
+            const pixelData = new Uint8Array(width * height * 3);
+            let pixelIndex = 0;
+            for (let i = 0; i < imgData.length; i += 4) {
+                pixelData[pixelIndex++] = imgData[i];     // R
+                pixelData[pixelIndex++] = imgData[i + 1]; // G
+                pixelData[pixelIndex++] = imgData[i + 2]; // B
+            }
+
+            const tiffFile = new Uint8Array(tiffHeader.length + pixelData.length);
+            tiffFile.set(tiffHeader, 0);
+            tiffFile.set(pixelData, tiffHeader.length);
+
+            const blob = new Blob([tiffFile], { type: 'image/tiff' });
+            return URL.createObjectURL(blob);
+        }
+
+        document.getElementById('convertButton').addEventListener('click', function() {
+            const format = document.getElementById('format').value;
+            convertedFiles = []; // Clear previous conversions
+            convertImages(document.getElementById('imageInput'), format);
+        });
+
+        const themeSwitch = document.getElementById('themeSwitch');
+        themeSwitch.addEventListener('click', function() {
+            const body = document.body;
+            body.classList.toggle('dark-mode');
+            body.classList.toggle('light-mode');
+            themeSwitch.parentElement.classList.toggle('dark-mode');
+        });
+    </script>
+
+</body>
+</html>
